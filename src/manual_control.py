@@ -1,6 +1,7 @@
 
 from minigrid.manual_control import ManualControl
-from core.actions import Actions
+
+from src.core.actions import Actions
 
 
 class NewManualControl(ManualControl):

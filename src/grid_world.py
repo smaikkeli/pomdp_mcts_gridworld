@@ -1,14 +1,17 @@
+from typing import Any
+
 import numpy as np
+from gymnasium import spaces
+from gymnasium.core import ObsType
 
-from core.actions import Actions
-from manual_control import NewManualControl
-
-from core.grid import ModifiedGrid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import Goal
 from minigrid.minigrid_env import MiniGridEnv
+from minigrid.core.constants import DIR_TO_VEC
 
-from gymnasium import spaces
+from src.core.actions import Actions
+from src.core.grid import ModifiedGrid
+from src.core.agent import Agent
 
 ###TODO
 # - IMPORT THE NEW WORKING GRID CLASS
@@ -16,9 +19,12 @@ from gymnasium import spaces
 
 # Environment class
 class GridWorld(MiniGridEnv):
-    def __init__(self, size=18, start_pos=None, goal_pos=None, **kwargs):
+    def __init__(self, size= 16, start_pos=None, agent_view_size = 7, **kwargs):
 
         mission_space = MissionSpace(mission_func=self._gen_mission)
+
+        #Set the grid_size + 2 to account for the walls
+        size = size + 2
 
         super().__init__(
             mission_space=mission_space,
@@ -30,7 +36,11 @@ class GridWorld(MiniGridEnv):
 
         self.agent_dir = 0
         self.agent_start_pos = start_pos
-        self.goal_pos = goal_pos
+        self.agent_view_size = agent_view_size
+        self.goal_pos = None
+
+        #Initialize the agent
+        self.agent = None
         
         #Reward range positive and minus infinity
         self.reward_range = (-np.inf, np.inf)
@@ -40,30 +50,51 @@ class GridWorld(MiniGridEnv):
 
         self.action_space = spaces.Discrete(len(self.actions))
 
-        #Size of belief matrix, not including walls
-        #self.beliefs = self._initialize_belief_state()
-
-    def _get_outside_view_indices(self):
-        outside_view_indices = []
-
-        topX, topY, botX, botY = self.get_view_exts(self.agent_view_size)
-
-        for i in range(self.width):
-            for j in range(self.height):
-                if not (topX <= i < botX and topY <= j < botY):
-                    cell = self.grid.get(i,j)
-
-                    if cell is None or cell.type != 'wall':
-                        outside_view_indices.append((i,j))
-        
-        return outside_view_indices
-
     def _reward(self) -> float:
         """
-        Compute the reward to be given upon success
+        Compute the reward based on the belief state closeness to the goal and the agent's position towards the belief states
         """
+        # Get the agent's beliefs and the current position
+        beliefs = self.agent.get_goal_belief_state()
+        goal_pos = self.goal_pos
+        current_position = self.agent.position
 
-        return 1 - 0.9 * (self.step_count / self.max_steps)
+        def belief_potential(pos):
+            total_distance = 0
+            total_belief = 0
+            for i in range(self.width):
+                for j in range(self.height):
+                    belief = beliefs[i, j]
+                    distance = abs(i - pos[0]) + abs(j - pos[1])
+                    total_distance += belief * distance
+                    total_belief += belief
+            weighted_distance = total_distance / total_belief if total_belief > 0 else total_distance
+            return weighted_distance
+
+        # Calculate the potential at the current position
+        potential_current = belief_potential(current_position)
+
+        # Normalize the potential reward
+        max_distance = self.width + self.height - 2
+        normalized_potential_reward = (max_distance - potential_current) / (max_distance + 1e-5)
+
+        # Distance reward based on closeness to the actual goal
+        total_distance = 0
+        total_belief = 0
+        for i in range(self.width):
+            for j in range(self.height):
+                belief = beliefs[i, j]
+                distance = abs(i - goal_pos[0]) + abs(j - goal_pos[1])
+                total_distance += belief * distance
+                total_belief += belief
+
+        weighted_distance = total_distance / total_belief if total_belief > 0 else total_distance
+        distance_reward = (max_distance - weighted_distance) / (max_distance + 1e-5)
+
+        # Combine the potential reward and the distance reward
+        final_reward = normalized_potential_reward + distance_reward
+
+        return final_reward
     
     @staticmethod
     def _gen_mission():
@@ -79,17 +110,35 @@ class GridWorld(MiniGridEnv):
         # Place the agent
         if self.agent_start_pos is not None:
             self.agent_pos = self.agent_start_pos
-            self.agent_dir = self.agent_start_dir
+            self.agent_dir = 0
         else:
             self.place_agent()
         
-        # Place the initial goal
-        if self.goal_pos is not None:
-            self.put_obj(Goal(), *self.goal_pos)
+        # Place the initial goal to the area where agent cant see, if possible
+        # To increase better simulations
+        unobserved_area = self._get_outside_view_indices()
+        if len(unobserved_area) > 0:
+            #Sample random index from unobserved area
+            chosen_index = np.random.choice(len(unobserved_area))
+            chosen_index = unobserved_area[chosen_index]
+            self.goal_pos = self.place_obj(Goal(), top = chosen_index)
+
         else:
-            self.place_obj(Goal())
+            self.goal_pos = self.place_obj(Goal())
 
         self.mission = "Reach the goal"
+
+        self.agent = self.initalize_agent()
+
+        print(self.agent.get_goal_belief_state().T)
+
+    def initalize_agent(self, goal_densities = [0.2, 0.7]):
+
+        agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
+        agent.initialize_belief_state(goal_densities = goal_densities)
+
+        return agent
+
 
     # New step function to handle new actions
     def step(self, action: Actions):
@@ -101,12 +150,11 @@ class GridWorld(MiniGridEnv):
         truncated = False
 
         def move_and_check_goal(new_pos):
-            nonlocal reward, terminated
+            nonlocal terminated
             cell = self.grid.get(*new_pos)
             if cell is None or cell.can_overlap():
                 self.agent_pos = new_pos
             if cell is not None and cell.type == 'goal':
-                reward = self._reward()
                 terminated = True
         
         # Get the action and move the agent
@@ -134,9 +182,15 @@ class GridWorld(MiniGridEnv):
 
         obs = self.gen_obs()
 
-        print(self._get_outside_view_indices())
+        self.agent.move_and_update_beliefs(self.agent_pos, obs)
+
+        print(f"{(self.agent.get_goal_belief_state().T)}")
+
+        #Get the reward after updating agents beliefs
+        reward = self._reward()
 
         return obs, reward, terminated, truncated, {}
+    
     
     def get_view_exts(self, agent_view_size):
         '''
@@ -154,6 +208,22 @@ class GridWorld(MiniGridEnv):
         botY = topY + agent_view_size
 
         return topX, topY, botX, botY
+    
+    def _get_outside_view_indices(self):
+        outside_view_indices = []
+
+        topX, topY, botX, botY = self.get_view_exts(self.agent_view_size)
+
+        for i in range(self.width):
+            for j in range(self.height):
+                if not (topX <= i < botX and topY <= j < botY):
+                    cell = self.grid.get(i,j)
+
+                    if cell is None or cell.type != 'wall':
+                        outside_view_indices.append((i,j))
+        
+        return outside_view_indices
+
 
     
     def gen_obs_grid(self, agent_view_size=None):
@@ -189,6 +259,24 @@ class GridWorld(MiniGridEnv):
             grid.set(*agent_pos, None)
 
         return grid, vis_mask
+    
+    def gen_obs(self):
+        '''
+        Generate the agent's view (partially observable low-resolution encoding)
+        '''
+
+        grid, vis_mask = self.gen_obs_grid()
+
+        #Encode the partially observable view into a numpy array
+        image = grid.encode(vis_mask)
+
+        #Observations are disctionaries containing:
+        # - an image (partially observable view of the environment)
+        # - the agent's direction /orientation (acting as a compass)
+        # - a textual mission string (instructions for the agent)
+        obs = {"image" : image, "direction": self.agent_dir}
+
+        return obs
     
     def get_full_render(self, highlight, tile_size):
         # Compute which cells are visible to the agent
@@ -230,62 +318,3 @@ class GridWorld(MiniGridEnv):
 
         return img
     
-class Agent():
-    def __init__(self, env):
-        self.position = env.agent_pos
-
-        self.goal_beliefs = self._init_goal_belief(env)
-
-    def get_goal_belief_state(self):
-        return self.goal_beliefs
-
-    def _init_goal_belief(self, env, mode=0.7):
-        beliefs = env._get_outside_view_indices()
-
-        # Choose one index randomly
-        goal_index = np.random.choice(len(beliefs))
-
-        # Initialize belief state with zero probability
-        belief_state = np.zeros((env.width, env.height))
-
-        # Assign high probability to the chosen goal index
-        goal_pos = beliefs[goal_index]
-        belief_state[goal_pos] = mode
-
-        # Distribute the remaining probability uniformly among the other indices
-        remaining_probability = (1 - mode) / (len(beliefs) - 1)
-        for i, pos in enumerate(beliefs):
-            if i != goal_index:
-                belief_state[pos] = remaining_probability
-
-        belief_state /= np.sum(belief_state)
-
-        print(belief_state)
-
-        return belief_state
-
-    def update_beliefs(self):
-        pass
-
-
-def main():
-    env = GridWorld(render_mode = "human", size = 10, agent_view_size = 5)
-    #agent = Agent(env)
-    #Manual control
-    mc = NewManualControl(env)
-    mc.start()
-
-    #Make simulation loop
-    '''
-    done = False
-    obs = env.reset()
-    #Get state
-    while not done:
-        action = env.action_space.sample()
-        obs, reward, done, _, info = env.step(action)
-        print(obs)
-    '''
-
-
-if __name__ == "__main__":
-    main()
