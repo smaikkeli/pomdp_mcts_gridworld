@@ -1,6 +1,7 @@
 from typing import Any
 
 import numpy as np
+from copy import deepcopy
 from gymnasium import spaces
 from gymnasium.core import ObsType
 
@@ -13,6 +14,9 @@ from src.core.actions import Actions
 from src.core.grid import ModifiedGrid
 from src.core.agent import Agent
 
+from src.planning.mcts import choose_action
+
+
 ###TODO
 # - IMPORT THE NEW WORKING GRID CLASS
 # - Implement belief state inside GridWorld
@@ -22,124 +26,35 @@ class GridWorld(MiniGridEnv):
     def __init__(self, size= 16, start_pos=None, agent_view_size = 7, **kwargs):
 
         mission_space = MissionSpace(mission_func=self._gen_mission)
-
-        #Set the grid_size + 2 to account for the walls
         size = size + 2
-
         super().__init__(
             mission_space=mission_space,
             grid_size=size,
             **kwargs,
         )
-
+        self.actions = Actions
+        self.action_space = spaces.Discrete(len(Actions))
         self.grid = ModifiedGrid(size, size)
-
+        self.step_count = 0
+        
         self.agent_dir = 0
         self.agent_start_pos = start_pos
         self.agent_view_size = agent_view_size
         self.goal_pos = None
-
-        #Initialize the agent
+        
         self.agent = None
         
-        #Reward range positive and minus infinity
-        self.reward_range = (-np.inf, np.inf)
-
-        # Overwrite MiniGrid actions with [up, down, left, right]
-        self.actions = Actions
-
-        self.action_space = spaces.Discrete(len(self.actions))
-
-    def _reward(self) -> float:
-        """
-        Compute the reward based on the belief state closeness to the goal and the agent's position towards the belief states
-        """
-        # Get the agent's beliefs and the current position
-        beliefs = self.agent.get_goal_belief_state()
-        goal_pos = self.goal_pos
-        current_position = self.agent.position
-
-        def belief_potential(pos):
-            total_distance = 0
-            total_belief = 0
-            for i in range(self.width):
-                for j in range(self.height):
-                    belief = beliefs[i, j]
-                    distance = abs(i - pos[0]) + abs(j - pos[1])
-                    total_distance += belief * distance
-                    total_belief += belief
-            weighted_distance = total_distance / total_belief if total_belief > 0 else total_distance
-            return weighted_distance
-
-        # Calculate the potential at the current position
-        potential_current = belief_potential(current_position)
-
-        # Normalize the potential reward
-        max_distance = self.width + self.height - 2
-        normalized_potential_reward = (max_distance - potential_current) / (max_distance + 1e-5)
-
-        # Distance reward based on closeness to the actual goal
-        total_distance = 0
-        total_belief = 0
-        for i in range(self.width):
-            for j in range(self.height):
-                belief = beliefs[i, j]
-                distance = abs(i - goal_pos[0]) + abs(j - goal_pos[1])
-                total_distance += belief * distance
-                total_belief += belief
-
-        weighted_distance = total_distance / total_belief if total_belief > 0 else total_distance
-        distance_reward = (max_distance - weighted_distance) / (max_distance + 1e-5)
-
-        # Combine the potential reward and the distance reward
-        final_reward = normalized_potential_reward + distance_reward
-
-        return final_reward
-    
-    @staticmethod
-    def _gen_mission():
-        return 'Reach the goal'
-    
-    def _gen_grid(self, width, height):
-        # Create an empty grid
-        self.grid = ModifiedGrid(width, height)
-
-        # Surround the grid with walls
-        self.grid.wall_rect(0, 0, width, height)
-
-        # Place the agent
-        if self.agent_start_pos is not None:
-            self.agent_pos = self.agent_start_pos
-            self.agent_dir = 0
-        else:
-            self.place_agent()
+    def choose_action(self, num_sim = 100):
+        best_action = choose_action(self, num_simulations = num_sim, max_depth = (self.agent_view_size))
+        return best_action
+            
         
-        # Place the initial goal to the area where agent cant see, if possible
-        # To increase better simulations
-        unobserved_area = self._get_outside_view_indices()
-        if len(unobserved_area) > 0:
-            #Sample random index from unobserved area
-            chosen_index = np.random.choice(len(unobserved_area))
-            chosen_index = unobserved_area[chosen_index]
-            self.goal_pos = self.place_obj(Goal(), top = chosen_index)
-
-        else:
-            self.goal_pos = self.place_obj(Goal())
-
-        self.mission = "Reach the goal"
-
-        self.agent = self.initalize_agent()
-
-        print(self.agent.get_goal_belief_state().T)
-
-    def initalize_agent(self, goal_densities = [0.2, 0.7]):
-
-        agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        agent.initialize_belief_state(goal_densities = goal_densities)
-
-        return agent
-
-
+    def reset(self, seed=None, options=None):
+        obs, _ = super().reset(seed=seed)
+        self.agent = self.initialize_agent()
+        #print(self.agent.get_goal_belief_state().T)
+        return self.gen_obs(), {}
+    
     # New step function to handle new actions
     def step(self, action: Actions):
 
@@ -184,13 +99,88 @@ class GridWorld(MiniGridEnv):
 
         self.agent.move_and_update_beliefs(self.agent_pos, obs)
 
-        print(f"{(self.agent.get_goal_belief_state().T)}")
+        #print(f"{(self.agent.get_goal_belief_state().T)}")
 
         #Get the reward after updating agents beliefs
         reward = self._reward()
+        
+        print(f"step={self.step_count}, reward={reward:.2f}")
 
         return obs, reward, terminated, truncated, {}
     
+    def _reward(self) -> float:
+        """
+        Compute the reward based on the belief state about the goal's location
+        """
+        beliefs = self.agent.get_goal_belief_state()
+        current_position = self.agent.position
+
+        def belief_potential(pos):
+            """
+            Calculate the potential of the current position based on belief state.
+            Higher belief values at nearby locations should contribute more to the potential.
+            """
+            total_distance = 0
+            total_belief = 0
+            for i in range(self.width):
+                for j in range(self.height):
+                    belief = beliefs[i, j]
+                    distance = abs(i - pos[0]) + abs(j - pos[1])
+                    total_distance += belief * distance
+                    total_belief += belief
+            weighted_distance = total_distance / total_belief if total_belief > 0 else total_distance
+            return weighted_distance
+
+        # Calculate the potential at the current position
+        potential_current = belief_potential(current_position)
+
+        # Normalize the potential reward
+        max_distance = self.width + self.height
+        normalized_potential_reward = (max_distance - potential_current) / (max_distance + 1e-5)
+
+        # Reward based solely on belief potential
+        final_reward = normalized_potential_reward
+
+        return final_reward
+    
+    @staticmethod
+    def _gen_mission():
+        return 'Reach the goal'
+    
+    def _gen_grid(self, width, height):
+        
+        # Create an empty grid
+        self.grid = ModifiedGrid(width, height)
+
+        # Surround the grid with walls
+        self.grid.wall_rect(0, 0, width, height)
+
+        # Place the agent
+        if self.agent_start_pos is not None:
+            self.agent_pos = self.agent_start_pos
+            self.agent_dir = 0
+        else:
+            self.place_agent()
+        
+        # If possible, place the initial goal to the area where agent cant see
+        unobserved_area = self._get_outside_view_indices()
+        if len(unobserved_area) > 0:
+            chosen_index = np.random.choice(len(unobserved_area))
+            chosen_index = unobserved_area[chosen_index]
+            self.goal_pos = self.place_obj(Goal(), top = chosen_index)
+
+        else:
+            self.goal_pos = self.place_obj(Goal())
+
+        self.mission = "Reach the goal"
+
+    def initialize_agent(self, goal_densities = [0.3, 0.4]):
+
+        agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
+        agent.initialize_belief_state(goal_densities = goal_densities)
+        agent.move_and_update_beliefs(self.agent_pos, self.gen_obs())
+
+        return agent
     
     def get_view_exts(self, agent_view_size):
         '''
@@ -318,3 +308,23 @@ class GridWorld(MiniGridEnv):
 
         return img
     
+    
+    def copy(self):
+        # Create a new instance of GridWorld
+        new_instance = GridWorld(
+            size=self.grid.width - 2,  # Adjust for the extra padding added in init
+            start_pos=self.agent_start_pos,
+            agent_view_size=self.agent_view_size
+        )
+        
+        # Manually copy serializable attributes
+        new_instance.grid = self.grid.copy()  # Ensure ModifiedGrid supports a copy method
+        new_instance.agent_dir = self.agent_dir
+        new_instance.agent_start_pos = self.agent_start_pos
+        new_instance.step_count = self.step_count
+        new_instance.agent_pos = self.agent_pos
+        new_instance.agent_view_size = self.agent_view_size
+        new_instance.goal_pos = self.goal_pos
+        new_instance.agent = self.agent.copy() if self.agent else None
+        
+        return new_instance

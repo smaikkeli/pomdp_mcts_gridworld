@@ -22,7 +22,7 @@ class Agent():
     def set_position(self, pos):
         self.position = pos
 
-    def initialize_belief_state(self, goal_densities = [0.2, 0.7]):
+    def initialize_belief_state(self, goal_densities = [0.7, 0.2]):
         '''
         Initializes the agents belief about the goal position
         Arguments:
@@ -69,7 +69,6 @@ class Agent():
     ##What is needed to update with bayes?
 
     ## How to model the probability of observing a goal state?
-    ## The probabilities are distributed on the grid at the beiginning
     ## When the agent moves, the distribution is updated such that the density is moved to the unobserved area
     ## Until the the agent finds the goal, then the density is exactly at the goal position
     def move_and_update_beliefs(self, position, obs):
@@ -143,6 +142,11 @@ class Agent():
                     outside_view_indices.append((i,j))
         
         return outside_view_indices
+    
+    def copy(self):
+        new_agent = Agent(self.width, self.height, self.position, self.view_size)
+        new_agent.goal_beliefs = self.goal_beliefs.copy()
+        return new_agent
 
 
 

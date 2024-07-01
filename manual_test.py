@@ -9,13 +9,16 @@ from minigrid.wrappers import SymbolicObsWrapper
 
 def main():
     np.set_printoptions(precision=4, suppress=True)
-    env = GridWorld(render_mode = "human", size = 6, agent_view_size = 3)
+    
+    grid_size = 7
+    view_size = 3
+    
+    env = GridWorld(render_mode = "human", size = grid_size, agent_view_size = view_size)
     #Manual controls
-    mc = NewManualControl(env)
-    mc.start()
+    #mc = NewManualControl(env)
+    #mc.start()
 
     #Make simulation loop
-    '''
     done = False
     obs = env.reset()
     #Observations are independent of the agent direction
@@ -26,12 +29,11 @@ def main():
     #Get state
     while not done:
         #Action chosen by the agent?? Should the agent be initialized in main?
-        #action = agent.get_action(obs)
-
-        action = env.action_space.sample()
+        action = env.choose_action(100)
         obs, reward, done, _, info = env.step(action)
-        print(obs)
-    '''
+        beliefs = env.agent.get_goal_belief_state()
+        print(beliefs)
+        #print(obs)
 
 if __name__ == "__main__":
     main()

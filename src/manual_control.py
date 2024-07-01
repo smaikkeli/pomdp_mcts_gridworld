@@ -10,7 +10,9 @@ class NewManualControl(ManualControl):
 
     def step(self, action: str):
         _, reward, terminated, truncated, _ = self.env.step(action)
+        belief = self.env.agent.get_goal_belief_state()
         print(f"step={self.env.step_count}, reward={reward:.2f}")
+        print(f"belief={belief.T}")
 
         if terminated:
             print("Terminated")
