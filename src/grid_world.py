@@ -16,11 +16,6 @@ from src.core.agent import Agent
 
 from src.planning.mcts import choose_action
 
-
-###TODO
-# - IMPORT THE NEW WORKING GRID CLASS
-# - Implement belief state inside GridWorld
-
 # Environment class
 class GridWorld(MiniGridEnv):
     def __init__(self, size= 16, start_pos=None, agent_view_size = 7, **kwargs):
@@ -44,15 +39,28 @@ class GridWorld(MiniGridEnv):
         
         self.agent = None
         
-    def choose_action(self, num_sim = 100):
-        best_action = choose_action(self, num_simulations = num_sim, max_depth = (self.agent_view_size))
+    def choose_action(self, num_sim = 1000, exploration_weight = 2):
+        best_action = choose_action(self, num_simulations = num_sim, max_depth = (self.agent_view_size), exploration_weight = exploration_weight)
         return best_action
-            
+    
+    def max_neighboring_reward(self):
+        '''
+        Checks the best reward by moving to the neighboring cells
+        '''
+        best_reward = -np.inf
+        best_action = None
+        for action in range(len(Actions)):
+            env_copy = self.copy()
+            obs, reward, terminated, truncated, _ = env_copy.step(action)
+            if reward > best_reward:
+                best_reward = reward
+                best_action = action
+
+        return best_action
         
     def reset(self, seed=None, options=None):
         obs, _ = super().reset(seed=seed)
         self.agent = self.initialize_agent()
-        #print(self.agent.get_goal_belief_state().T)
         return self.gen_obs(), {}
     
     # New step function to handle new actions
@@ -71,6 +79,8 @@ class GridWorld(MiniGridEnv):
                 self.agent_pos = new_pos
             if cell is not None and cell.type == 'goal':
                 terminated = True
+
+            self.agent.move_agent(self.agent_pos)
         
         # Get the action and move the agent
         if action == self.actions.right:
@@ -95,16 +105,11 @@ class GridWorld(MiniGridEnv):
         if self.render_mode == "human":
             self.render()
 
+        reward = self._reward()
+
         obs = self.gen_obs()
 
-        self.agent.move_and_update_beliefs(self.agent_pos, obs)
-
-        #print(f"{(self.agent.get_goal_belief_state().T)}")
-
-        #Get the reward after updating agents beliefs
-        reward = self._reward()
-        
-        print(f"step={self.step_count}, reward={reward:.2f}")
+        self.agent.update_beliefs(obs)
 
         return obs, reward, terminated, truncated, {}
     
@@ -112,36 +117,30 @@ class GridWorld(MiniGridEnv):
         """
         Compute the reward based on the belief state about the goal's location
         """
+
         beliefs = self.agent.get_goal_belief_state()
-        current_position = self.agent.position
+        current_position = self.agent_pos
+
+        if (current_position == self.goal_pos):
+            return 100
 
         def belief_potential(pos):
             """
             Calculate the potential of the current position based on belief state.
             Higher belief values at nearby locations should contribute more to the potential.
             """
-            total_distance = 0
             total_belief = 0
             for i in range(self.width):
                 for j in range(self.height):
                     belief = beliefs[i, j]
                     distance = abs(i - pos[0]) + abs(j - pos[1])
-                    total_distance += belief * distance
-                    total_belief += belief
-            weighted_distance = total_distance / total_belief if total_belief > 0 else total_distance
-            return weighted_distance
-
+                    total_belief += belief / (distance + 1e-5)
+            return total_belief
+        
         # Calculate the potential at the current position
         potential_current = belief_potential(current_position)
 
-        # Normalize the potential reward
-        max_distance = self.width + self.height
-        normalized_potential_reward = (max_distance - potential_current) / (max_distance + 1e-5)
-
-        # Reward based solely on belief potential
-        final_reward = normalized_potential_reward
-
-        return final_reward
+        return potential_current
     
     @staticmethod
     def _gen_mission():
@@ -174,11 +173,12 @@ class GridWorld(MiniGridEnv):
 
         self.mission = "Reach the goal"
 
-    def initialize_agent(self, goal_densities = [0.3, 0.4]):
+    def initialize_agent(self, goal_densities = [.4,.3,.2]):
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
         agent.initialize_belief_state(goal_densities = goal_densities)
-        agent.move_and_update_beliefs(self.agent_pos, self.gen_obs())
+        obs = self.gen_obs()
+        agent.update_beliefs(obs)
 
         return agent
     
@@ -310,21 +310,11 @@ class GridWorld(MiniGridEnv):
     
     
     def copy(self):
-        # Create a new instance of GridWorld
-        new_instance = GridWorld(
-            size=self.grid.width - 2,  # Adjust for the extra padding added in init
-            start_pos=self.agent_start_pos,
-            agent_view_size=self.agent_view_size
-        )
-        
-        # Manually copy serializable attributes
-        new_instance.grid = self.grid.copy()  # Ensure ModifiedGrid supports a copy method
-        new_instance.agent_dir = self.agent_dir
-        new_instance.agent_start_pos = self.agent_start_pos
-        new_instance.step_count = self.step_count
-        new_instance.agent_pos = self.agent_pos
-        new_instance.agent_view_size = self.agent_view_size
-        new_instance.goal_pos = self.goal_pos
-        new_instance.agent = self.agent.copy() if self.agent else None
-        
-        return new_instance
+        new_env = GridWorld(self.width - 2, start_pos=self.agent_pos, agent_view_size=self.agent_view_size)
+        new_env.grid = self.grid.copy()
+        new_env.step_count = self.step_count
+        new_env.agent_dir = self.agent_dir
+        new_env.agent_pos = self.agent_pos
+        new_env.goal_pos = self.goal_pos
+        new_env.agent = self.agent.copy()
+        return new_env

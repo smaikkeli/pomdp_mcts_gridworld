@@ -12,6 +12,8 @@ class Agent():
         self.height = height
         self.view_size = view_size
         self.position = pos
+        self.visited_positions = np.zeros((width, height), dtype = int)
+        self.visited_positions[pos] = 1
 
         #Start with uniform belief state
         self.goal_beliefs = np.ones((width, height)) / (width * height)
@@ -19,8 +21,9 @@ class Agent():
     def get_goal_belief_state(self):
         return self.goal_beliefs
     
-    def set_position(self, pos):
+    def move_agent(self, pos):
         self.position = pos
+        self.visited_positions[pos] += 1
 
     def initialize_belief_state(self, goal_densities = [0.7, 0.2]):
         '''
@@ -38,8 +41,6 @@ class Agent():
         beliefs = np.zeros((self.height, self.width), dtype = np.float64)
         num_of_goals = len(goal_densities)
         
-        #There must always be space for setting the belief goals
-        #outside the agents view
         assert num_of_goals <= len(unobserved_area)
         
         #Choose distinct indices for the modes
@@ -49,10 +50,6 @@ class Agent():
             goal_index = chosen_indices[i]
             goal_pos = unobserved_area[goal_index]
             beliefs[goal_pos] = density
-            
-        #Generate a probability distribution of length of unobserved area,
-        #where num_of_goals are the modes of the distribution, and the rest
-        #of the density is spread evenly across rest of the indices
 
         remaining_density = 1 - np.sum(beliefs)
         remaining_indices = [i for i in range(len(unobserved_area)) if i not in chosen_indices]
@@ -63,22 +60,14 @@ class Agent():
                 beliefs[unobserved_area[i]] += equal_density
         
         self.goal_beliefs = beliefs
-    
-    ##How to update the beliefs given a new observation?
-    ##The observations are deterministic, so the agent can be fully certain
-    ##What is needed to update with bayes?
 
-    ## How to model the probability of observing a goal state?
-    ## When the agent moves, the distribution is updated such that the density is moved to the unobserved area
-    ## Until the the agent finds the goal, then the density is exactly at the goal position
-    def move_and_update_beliefs(self, position, obs):
+    def update_beliefs(self, obs):
         '''
         Update the agent's belief state given an observation
         Arguments:
             - obs: observations from the environment
         '''
-        #Get the agent's position
-        self.position = position
+
         image = obs['image'][:,:,0]
         view_size = image.shape[0]
 
@@ -91,7 +80,6 @@ class Agent():
         botx = topx + view_size
         boty = topy + view_size
 
-
         #The likelihood of observing the goal is 1 if the goal is in the agents view
         #Otherwise, the likelihood is 0
         if np.sum(mask) == 0:
@@ -99,21 +87,27 @@ class Agent():
             new_beliefs[topx:botx, topy:boty] = 0
         else:
             goal_pos = np.where(mask)
-            #Adjust the position to the grid
             goal_pos = (topx + goal_pos[0][0], topy + goal_pos[1][0])
             new_beliefs = np.zeros((self.width, self.height))
             new_beliefs[goal_pos] = 1
 
-        #Normalization constant needs to be calculated
-        #The prior is the belief state before the observation
-        #The likelihood is the observation
-        #The posterior is the updated belief state
         normalization_constant = np.sum(new_beliefs)
         new_beliefs /= (normalization_constant + 1e-10)
 
         self.goal_beliefs = new_beliefs
+    
+    def get_outside_view_indices(self):
+        outside_view_indices = []
 
+        topX, topY, botX, botY = self.get_view_exts(self.view_size)
 
+        for i in range(self.width):
+            for j in range(self.height):
+                if not (topX <= i < botX and topY <= j < botY):
+                    outside_view_indices.append((i,j))
+        
+        return outside_view_indices
+    
     def get_view_exts(self, agent_view_size):
         '''
         Get the extents of the square set of tiles visible to the agent
@@ -131,21 +125,10 @@ class Agent():
 
         return topX, topY, botX, botY
     
-    def get_outside_view_indices(self):
-        outside_view_indices = []
-
-        topX, topY, botX, botY = self.get_view_exts(self.view_size)
-
-        for i in range(self.width):
-            for j in range(self.height):
-                if not (topX <= i < botX and topY <= j < botY):
-                    outside_view_indices.append((i,j))
-        
-        return outside_view_indices
-    
     def copy(self):
         new_agent = Agent(self.width, self.height, self.position, self.view_size)
         new_agent.goal_beliefs = self.goal_beliefs.copy()
+        new_agent.visited_positions = self.visited_positions.copy()
         return new_agent
 
 

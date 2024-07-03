@@ -1,7 +1,7 @@
 import numpy as np
-from abc import ABC, abstractmethod
+import random
 
-class MCTSNode(ABC):
+class MCTSNode():
     def __init__(self, state, parent=None, action=None):
         self.state = state
         self.parent = parent
@@ -9,7 +9,9 @@ class MCTSNode(ABC):
         self.children = {}
         self.visits = 0
         self.value = 0
-        self.untried_actions = list(range(state.action_space.n))
+        self.untried_actions = (list(range(state.action_space.n)))
+
+        random.shuffle(self.untried_actions)
         
     def is_terminal(self):
         #Check if goal reached or max steps exceeded
@@ -36,7 +38,7 @@ class MCTSNode(ABC):
         return child_node
     
 class MCTS:
-    def __init__(self, exploration_weight = 2):
+    def __init__(self, exploration_weight = 1.414):
         self.exploration_weight = exploration_weight
         
     def search(self, initial_state, num_simulations, max_depth):
@@ -50,15 +52,16 @@ class MCTS:
             while not node.is_terminal() and node.is_fully_expanded():
                 node = node.best_child(c_param=self.exploration_weight)
                 depth += 1
-            
+
             #Expansion
-            if not node.is_terminal() and not node.is_fully_expanded() and depth < max_depth:
+            if not node.is_terminal() and not node.is_fully_expanded() and depth < 1:
                 node = node.expand()
                 depth += 1
                 
             #Simulation
             reward = self.simulate(node.state, max_depth - depth)
             
+            #Backpropagation
             while node is not None:
                 node.visits += 1
                 node.value += reward
@@ -69,17 +72,14 @@ class MCTS:
     def simulate(self, state, max_steps):
         current_state = state.copy()
         for _ in range(max_steps):
-            if current_state.goal_pos == current_state.agent_pos:
-                break
-            
             #Take random step
             action = current_state.action_space.sample()
-            current_state.step(action)
+            _, reward, terminated, _, _ = current_state.step(action)
+            if terminated:
+                return reward
             
         return state._reward()
         
-
-def choose_action(env, num_simulations = 1000, max_depth=10):
-    mcts = MCTS()
-    env = env.copy()
+def choose_action(env, num_simulations, max_depth, exploration_weight):
+    mcts = MCTS(exploration_weight)
     return mcts.search(env, num_simulations, max_depth)
