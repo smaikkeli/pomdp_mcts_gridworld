@@ -79,7 +79,7 @@ class GridWorld(MiniGridEnv):
                 self.agent_pos = new_pos
             if cell is not None and cell.type == 'goal':
                 terminated = True
-
+ 
             self.agent.move_agent(self.agent_pos)
         
         # Get the action and move the agent
@@ -173,10 +173,10 @@ class GridWorld(MiniGridEnv):
 
         self.mission = "Reach the goal"
 
-    def initialize_agent(self, goal_densities = [.4,.3,.2]):
+    def initialize_agent(self, mode_densities = [.4,.3,.2]):
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        agent.initialize_belief_state(goal_densities = goal_densities)
+        agent.initialize_belief_state(goal_densities = mode_densities)
         obs = self.gen_obs()
         agent.update_beliefs(obs)
 

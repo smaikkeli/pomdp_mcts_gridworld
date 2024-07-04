@@ -15,8 +15,14 @@ class Agent():
         self.visited_positions = np.zeros((width, height), dtype = int)
         self.visited_positions[pos] = 1
 
+        #Keep track of the goal densities, and their positions
+        self.mode_densities = {}
+
         #Start with uniform belief state
         self.goal_beliefs = np.ones((width, height)) / (width * height)
+
+    def get_mode_densities(self):
+        return self.mode_densities
 
     def get_goal_belief_state(self):
         return self.goal_beliefs
@@ -25,12 +31,11 @@ class Agent():
         self.position = pos
         self.visited_positions[pos] += 1
 
-    def initialize_belief_state(self, goal_densities = [0.7, 0.2]):
+    def initialize_belief_state(self, mode_densities = [0.7, 0.2]):
         '''
         Initializes the agents belief about the goal position
         Arguments:
-            - unobserved_area: list of tuples, the indices of the unobserved area
-            - goal_densities: list of floats, the density of the modes (goals) of the distribution
+            - mode_densities: list of floats, the density of the modes (goals) of the distribution
 
         Returns:
             - beliefs: numpy array, the agents belief state
@@ -39,17 +44,19 @@ class Agent():
         unobserved_area = self.get_outside_view_indices()
 
         beliefs = np.zeros((self.height, self.width), dtype = np.float64)
-        num_of_goals = len(goal_densities)
+        num_of_goals = len(mode_densities)
         
         assert num_of_goals <= len(unobserved_area)
         
         #Choose distinct indices for the modes
         chosen_indices = np.random.choice(len(unobserved_area), num_of_goals, replace = False)
         
-        for i, density in enumerate(goal_densities):
+        for i, density in enumerate(mode_densities):
             goal_index = chosen_indices[i]
             goal_pos = unobserved_area[goal_index]
             beliefs[goal_pos] = density
+
+            self.mode_densities[goal_pos] = density
 
         remaining_density = 1 - np.sum(beliefs)
         remaining_indices = [i for i in range(len(unobserved_area)) if i not in chosen_indices]
@@ -93,6 +100,10 @@ class Agent():
 
         normalization_constant = np.sum(new_beliefs)
         new_beliefs /= (normalization_constant + 1e-10)
+
+        #update the mode densities
+        for goal_pos in self.mode_densities:
+            self.mode_densities[goal_pos] = new_beliefs[goal_pos]
 
         self.goal_beliefs = new_beliefs
     
