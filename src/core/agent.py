@@ -1,6 +1,6 @@
 import numpy as np
 
-from minigrid.core.constants import IDX_TO_OBJECT, DIR_TO_VEC, OBJECT_TO_IDX
+from minigrid.core.constants import OBJECT_TO_IDX
 
 '''
 Agent class is used within the GridWorld class to represent the agents beliefs
@@ -12,8 +12,6 @@ class Agent():
         self.height = height
         self.view_size = view_size
         self.position = pos
-        self.visited_positions = np.zeros((width, height), dtype = int)
-        self.visited_positions[pos] = 1
 
         #Keep track of the goal densities, and their positions
         self.mode_densities = {}
@@ -29,7 +27,6 @@ class Agent():
     
     def move_agent(self, pos):
         self.position = pos
-        self.visited_positions[pos] += 1
 
     def initialize_belief_state(self, mode_densities = [0.7, 0.2]):
         '''
@@ -55,7 +52,6 @@ class Agent():
             goal_index = chosen_indices[i]
             goal_pos = unobserved_area[goal_index]
             beliefs[goal_pos] = density
-
             self.mode_densities[goal_pos] = density
 
         remaining_density = 1 - np.sum(beliefs)
@@ -67,6 +63,11 @@ class Agent():
                 beliefs[unobserved_area[i]] += equal_density
         
         self.goal_beliefs = beliefs
+    
+    def make_goal_mask(self, obs):
+        #Extract objects from the observation
+        image = obs['image'][:,:,0]
+        return np.array(image == OBJECT_TO_IDX['goal'])
 
     def update_beliefs(self, obs):
         '''
@@ -75,20 +76,30 @@ class Agent():
             - obs: observations from the environment
         '''
 
-        image = obs['image'][:,:,0]
-        view_size = image.shape[0]
+        mask = self.make_goal_mask(obs)
+        view_size = mask.shape[0]
 
-        #Make a mask of the goal position
-        mask = np.array(image == OBJECT_TO_IDX['goal'])
-
-        topx = self.position[0] - view_size // 2
-        topy = self.position[1] - view_size // 2
-
-        botx = topx + view_size
-        boty = topy + view_size
+        topx, topy, botx, boty = self.get_view_exts(view_size)
+        
+        # Slice the mask from dimensions where it goes over the grid
+        if topx < 0:
+            mask = mask[-topx:]
+            topx = 0
+        if topy < 0:
+            mask = mask[:, -topy:]
+            topy = 0
+        if botx > self.width:
+            mask = mask[:self.width - topx]
+            botx = self.width
+        if boty > self.height:
+            mask = mask[:, :self.height - topy]
+            boty = self.height
+            
 
         #The likelihood of observing the goal is 1 if the goal is in the agents view
-        #Otherwise, the likelihood is 0
+        #Otherwise 0
+        
+        #No goal found
         if np.sum(mask) == 0:
             new_beliefs = self.goal_beliefs.copy()
             new_beliefs[topx:botx, topy:boty] = 0
@@ -139,9 +150,7 @@ class Agent():
     def copy(self):
         new_agent = Agent(self.width, self.height, self.position, self.view_size)
         new_agent.goal_beliefs = self.goal_beliefs.copy()
-        new_agent.visited_positions = self.visited_positions.copy()
         return new_agent
-
 
 
         

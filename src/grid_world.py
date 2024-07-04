@@ -1,4 +1,5 @@
 from typing import Any
+import numpy as np
 
 import numpy as np
 from copy import deepcopy
@@ -34,6 +35,7 @@ class GridWorld(MiniGridEnv):
         
         self.agent_dir = 0
         self.agent_start_pos = start_pos
+        self.agent_previous_pos = None
         self.agent_view_size = agent_view_size
         self.goal_pos = None
         
@@ -52,6 +54,7 @@ class GridWorld(MiniGridEnv):
         for action in range(len(Actions)):
             env_copy = self.copy()
             obs, reward, terminated, truncated, _ = env_copy.step(action)
+            print(f"action={action}, reward={reward:.2f}")
             if reward > best_reward:
                 best_reward = reward
                 best_action = action
@@ -61,7 +64,7 @@ class GridWorld(MiniGridEnv):
     def reset(self, seed=None, options=None):
         obs, _ = super().reset(seed=seed)
         self.agent = self.initialize_agent()
-        return self.gen_obs(), {}
+        return obs, {}
     
     # New step function to handle new actions
     def step(self, action: Actions):
@@ -79,7 +82,7 @@ class GridWorld(MiniGridEnv):
                 self.agent_pos = new_pos
             if cell is not None and cell.type == 'goal':
                 terminated = True
- 
+
             self.agent.move_agent(self.agent_pos)
         
         # Get the action and move the agent
@@ -97,19 +100,20 @@ class GridWorld(MiniGridEnv):
             self.agent_dir = 3
         
         # Move agent and check if goal reached
+        self.agent_previous_pos = self.agent_pos
         move_and_check_goal(new_pos)
+        
+        reward = self._reward()
+
+        obs = self.gen_obs()
+
+        self.agent.update_beliefs(obs)
 
         if self.step_count >= self.max_steps:
             truncated = True
 
         if self.render_mode == "human":
             self.render()
-
-        reward = self._reward()
-
-        obs = self.gen_obs()
-
-        self.agent.update_beliefs(obs)
 
         return obs, reward, terminated, truncated, {}
     
@@ -120,6 +124,7 @@ class GridWorld(MiniGridEnv):
 
         beliefs = self.agent.get_goal_belief_state()
         current_position = self.agent_pos
+        previous_position = self.agent_previous_pos
 
         if (current_position == self.goal_pos):
             return 100
@@ -134,13 +139,16 @@ class GridWorld(MiniGridEnv):
                 for j in range(self.height):
                     belief = beliefs[i, j]
                     distance = abs(i - pos[0]) + abs(j - pos[1])
-                    total_belief += belief / (distance + 1e-5)
+                    total_belief += belief / (distance + 1)
             return total_belief
         
         # Calculate the potential at the current position
         potential_current = belief_potential(current_position)
+        potential_previous = belief_potential(previous_position)
+        
+        reward = potential_current - potential_previous
 
-        return potential_current
+        return reward
     
     @staticmethod
     def _gen_mission():
@@ -162,21 +170,15 @@ class GridWorld(MiniGridEnv):
             self.place_agent()
         
         # If possible, place the initial goal to the area where agent cant see
-        unobserved_area = self._get_outside_view_indices()
-        if len(unobserved_area) > 0:
-            chosen_index = np.random.choice(len(unobserved_area))
-            chosen_index = unobserved_area[chosen_index]
-            self.goal_pos = self.place_obj(Goal(), top = chosen_index)
 
-        else:
-            self.goal_pos = self.place_obj(Goal())
+        self.goal_pos = self.place_obj(Goal())
 
         self.mission = "Reach the goal"
 
     def initialize_agent(self, mode_densities = [.4,.3,.2]):
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        agent.initialize_belief_state(goal_densities = mode_densities)
+        agent.initialize_belief_state(mode_densities = mode_densities)
         obs = self.gen_obs()
         agent.update_beliefs(obs)
 
