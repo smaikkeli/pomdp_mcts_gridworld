@@ -19,7 +19,13 @@ from src.planning.mcts import choose_action
 
 # Environment class
 class GridWorld(MiniGridEnv):
-    def __init__(self, size= 16, start_pos=None, agent_view_size = 7, **kwargs):
+    def __init__(self, 
+                 size= 16, 
+                 start_pos=None, 
+                 agent_view_size = 7, 
+                 mode_densities = [0.4, 0.3], 
+                 mode_positions = None, 
+                 **kwargs):
 
         mission_space = MissionSpace(mission_func=self._gen_mission)
         size = size + 2
@@ -40,6 +46,8 @@ class GridWorld(MiniGridEnv):
         self.goal_pos = None
         
         self.agent = None
+        self.mode_densities = mode_densities
+        self.mode_positions = mode_positions
         
     def choose_action(self, num_sim = 1000, exploration_weight = 2):
         best_action = choose_action(self, num_simulations = num_sim, max_depth = (self.agent_view_size), exploration_weight = exploration_weight)
@@ -54,7 +62,6 @@ class GridWorld(MiniGridEnv):
         for action in range(len(Actions)):
             env_copy = self.copy()
             obs, reward, terminated, truncated, _ = env_copy.step(action)
-            print(f"action={action}, reward={reward:.2f}")
             if reward > best_reward:
                 best_reward = reward
                 best_action = action
@@ -175,10 +182,13 @@ class GridWorld(MiniGridEnv):
 
         self.mission = "Reach the goal"
 
-    def initialize_agent(self, mode_densities = [.4,.3,.2]):
+    def initialize_agent(self, mode_densities = None, mode_positions = None):
+        
+        if mode_densities is None:
+            mode_densities = self.mode_densities
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        agent.initialize_belief_state(mode_densities = mode_densities)
+        agent.initialize_belief_state(mode_densities = mode_densities, mode_positions = mode_positions)
         obs = self.gen_obs()
         agent.update_beliefs(obs)
 
@@ -264,9 +274,8 @@ class GridWorld(MiniGridEnv):
 
         #Observations are disctionaries containing:
         # - an image (partially observable view of the environment)
-        # - the agent's direction /orientation (acting as a compass)
-        # - a textual mission string (instructions for the agent)
-        obs = {"image" : image, "direction": self.agent_dir}
+        # - the agent's position in the grid
+        obs = {"image" : image, "agent_pos" : self.agent_pos}
 
         return obs
     

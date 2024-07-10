@@ -13,14 +13,8 @@ class Agent():
         self.view_size = view_size
         self.position = pos
 
-        #Keep track of the goal densities, and their positions
-        self.mode_densities = {}
-
         #Start with uniform belief state
         self.goal_beliefs = np.ones((width, height)) / (width * height)
-
-    def get_mode_densities(self):
-        return self.mode_densities
 
     def get_goal_belief_state(self):
         return self.goal_beliefs
@@ -28,12 +22,12 @@ class Agent():
     def move_agent(self, pos):
         self.position = pos
 
-    def initialize_belief_state(self, mode_densities = [0.7, 0.2]):
+    def initialize_belief_state(self, mode_densities = [0.7, 0.2], mode_positions = None):
         '''
         Initializes the agents belief about the goal position
         Arguments:
             - mode_densities: list of floats, the density of the modes (goals) of the distribution
-
+            - mode_positions: list of tuples, the positions of the modes (goals) of the distribution
         Returns:
             - beliefs: numpy array, the agents belief state
         '''
@@ -46,13 +40,13 @@ class Agent():
         assert num_of_goals <= len(unobserved_area)
         
         #Choose distinct indices for the modes
-        chosen_indices = np.random.choice(len(unobserved_area), num_of_goals, replace = False)
+        if mode_positions is None:
+            chosen_indices = np.random.choice(len(unobserved_area), num_of_goals, replace = False)
+            mode_positions = [unobserved_area[i] for i in chosen_indices]
         
         for i, density in enumerate(mode_densities):
-            goal_index = chosen_indices[i]
-            goal_pos = unobserved_area[goal_index]
+            goal_pos = mode_positions[i]
             beliefs[goal_pos] = density
-            self.mode_densities[goal_pos] = density
 
         remaining_density = 1 - np.sum(beliefs)
         remaining_indices = [i for i in range(len(unobserved_area)) if i not in chosen_indices]
@@ -111,10 +105,6 @@ class Agent():
 
         normalization_constant = np.sum(new_beliefs)
         new_beliefs /= (normalization_constant + 1e-10)
-
-        #update the mode densities
-        for goal_pos in self.mode_densities:
-            self.mode_densities[goal_pos] = new_beliefs[goal_pos]
 
         self.goal_beliefs = new_beliefs
     
