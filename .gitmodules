@@ -1,0 +1,3 @@
+[submodule "relational-neural-processes"]
+	path = relational-neural-processes
+	url = https://github.com/acerbilab/relational-neural-processes
