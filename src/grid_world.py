@@ -34,6 +34,9 @@ class GridWorld(MiniGridEnv):
             grid_size=size,
             **kwargs,
         )
+
+        assert agent_view_size % 2 == 1, "View size must be odd"
+        
         self.actions = Actions
         self.action_space = spaces.Discrete(len(Actions))
         self.grid = ModifiedGrid(size, size)
