@@ -22,41 +22,55 @@ class Agent():
     def move_agent(self, pos):
         self.position = pos
 
-    def initialize_belief_state(self, mode_densities = [0.7, 0.2], mode_positions = None):
+    def initialize_belief_state(self, mode_densities=[0.7, 0.2], mode_positions=None):
         '''
-        Initializes the agents belief about the goal position
+        Initializes the agent's belief about the goal position
         Arguments:
             - mode_densities: list of floats, the density of the modes (goals) of the distribution
             - mode_positions: list of tuples, the positions of the modes (goals) of the distribution
         Returns:
-            - beliefs: numpy array, the agents belief state
+            - beliefs: numpy array, the agent's belief state
         '''
         
         unobserved_area = self.get_outside_view_indices()
 
-        beliefs = np.zeros((self.height, self.width), dtype = np.float64)
+        beliefs = np.zeros((self.height, self.width), dtype=np.float64)
         num_of_goals = len(mode_densities)
         
-        assert num_of_goals <= len(unobserved_area)
-        
-        #Choose distinct indices for the modes
         if mode_positions is None:
-            chosen_indices = np.random.choice(len(unobserved_area), num_of_goals, replace = False)
-            mode_positions = [unobserved_area[i] for i in chosen_indices]
+            # Choose distinct indices for the modes from unobserved area
+            chosen_indices = np.random.choice(len(unobserved_area), min(num_of_goals, len(unobserved_area)), replace=False)
+            mode_positions = [tuple(unobserved_area[i]) for i in chosen_indices]
+        else:
+            # Use mode_positions as provided, without filtering
+            mode_positions = [tuple(pos) for pos in mode_positions[:num_of_goals]]
         
-        for i, density in enumerate(mode_densities):
-            goal_pos = mode_positions[i]
-            beliefs[goal_pos] = density
+        # Set beliefs for mode positions
+        for pos, density in zip(mode_positions, mode_densities[:len(mode_positions)]):
+            beliefs[pos] = density
 
-        remaining_density = 1 - np.sum(beliefs)
-        remaining_indices = [i for i in range(len(unobserved_area)) if i not in chosen_indices]
+        # Calculate remaining density and positions
+        remaining_density = max(0, 1 - np.sum(beliefs))
+        all_positions = set((x, y) for x in range(self.height) for y in range(self.width))
+        remaining_positions = list(all_positions - set(mode_positions))
         
-        if remaining_indices:
-            equal_density = remaining_density / len(remaining_indices)
-            for i in remaining_indices:
-                beliefs[unobserved_area[i]] += equal_density
+        if remaining_positions:
+            equal_density = remaining_density / len(remaining_positions)
+            for pos in remaining_positions:
+                beliefs[pos] += equal_density
+        elif remaining_density > 0:
+            # If no remaining positions but there's remaining density, distribute it equally among mode positions
+            equal_density = remaining_density / len(mode_positions)
+            for pos in mode_positions:
+                beliefs[pos] += equal_density
+        
+        # Normalize beliefs to ensure they sum to 1
+        total_belief = np.sum(beliefs)
+        if total_belief > 0:
+            beliefs /= total_belief
         
         self.goal_beliefs = beliefs
+        return beliefs
     
     def make_goal_mask(self, obs):
         #Extract objects from the observation

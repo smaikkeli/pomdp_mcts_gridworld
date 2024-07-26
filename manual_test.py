@@ -6,12 +6,12 @@ from src.manual_control import NewManualControl
 def main():
     np.set_printoptions(precision=4, suppress=True)
     
-    grid_size = 16
-    view_size = 7
+    grid_size = 3
+    view_size = 3
 
     assert view_size % 2 == 1, "View size must be odd"
     
-    env = GridWorld(render_mode = "human", size = grid_size, agent_view_size = view_size, mode_densities = [0.8])
+    env = GridWorld(render_mode = "human", size = grid_size, agent_view_size = view_size, mode_densities = [0.8, 0.1], mode_positions=[(0,0), (4,4)])
 
     #Manual controls
     '''

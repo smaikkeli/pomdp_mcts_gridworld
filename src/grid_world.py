@@ -23,7 +23,7 @@ class GridWorld(MiniGridEnv):
                  size= 16, 
                  start_pos=None, 
                  agent_view_size = 7, 
-                 mode_densities = [0.4, 0.3], 
+                 mode_densities = None, 
                  mode_positions = None, 
                  **kwargs):
 
@@ -185,13 +185,10 @@ class GridWorld(MiniGridEnv):
 
         self.mission = "Reach the goal"
 
-    def initialize_agent(self, mode_densities = None, mode_positions = None):
-        
-        if mode_densities is None:
-            mode_densities = self.mode_densities
+    def initialize_agent(self):
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        agent.initialize_belief_state(mode_densities = mode_densities, mode_positions = mode_positions)
+        agent.initialize_belief_state(mode_densities = self.mode_densities, mode_positions = self.mode_positions)
         obs = self.gen_obs()
         agent.update_beliefs(obs)
 
