@@ -22,7 +22,7 @@ class Agent():
     def move_agent(self, pos):
         self.position = pos
 
-    def initialize_belief_state(self, mode_densities=[0.7, 0.2], mode_positions=None):
+    def initialize_belief_state(self, mode_densities = [0.4, 0.3], mode_positions = None):
         '''
         Initializes the agent's belief about the goal position
         Arguments:
@@ -71,6 +71,14 @@ class Agent():
         
         self.goal_beliefs = beliefs
         return beliefs
+    
+    def stationary_belief_state(self, goal_position):
+        '''
+        For testing purposes, initializes belief to the goal
+        '''
+        
+        self.goal_beliefs = np.zeros((self.width, self.height), dtype = np.float32)
+        self.goal_beliefs[goal_position] = 1
     
     def make_goal_mask(self, obs):
         #Extract objects from the observation

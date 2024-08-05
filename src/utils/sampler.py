@@ -15,16 +15,19 @@ class Sampler():
     self.fixed_goal = fixed_goal
 
   def generate_batch(self, densities = None):
+    '''
+    General batch creation process, one should implement this in code
+    '''
     
     user_params = self.generate_user_parameters(densities)
     
-    num_trajectories = np.random.randint(1, 8)
+    num_trajectories = np.random.randint(1, 10)
     
     trajectories = self.generate_user_trajectories(num_trajectories=num_trajectories, user_params=user_params)
     
-    batch = self.context_and_target(trajectories)
+    xc, yc, xt, yt = self.build_context_and_target(trajectories)
     
-    return batch
+    return xc, yc, xt, yt, user_params
   
   def generate_user_parameters(self, densities = None):
     '''
@@ -39,15 +42,15 @@ class Sampler():
     else:
       mode_densities = densities
     
-    mode_positions = np.random.randint(0, self.grid_size, (len(mode_densities), 2))
+    mode_positions = np.random.randint(1, self.grid_size, (len(mode_densities), 2))
     
     #Sample goal_position that is used if fixed_goal = True
-    goal_pos = tuple(np.random.randint(0, self.grid_size, (2)))
+    init_goal_pos = tuple(np.random.randint(1, self.grid_size + 1, size = 2))
     
     return {
       'mode_densities': mode_densities,
       'mode_positions': mode_positions,
-      'goal_position': goal_pos
+      'goal_position': init_goal_pos
     }
 
   def sample_mode_densities(self, max_modes = 3, total_density = 0.9):
@@ -63,8 +66,10 @@ class Sampler():
   def generate_user_trajectories(self, num_trajectories, user_params):
     mode_densities = user_params['mode_densities']
     mode_positions = user_params['mode_positions']
+    init_goal_position = user_params['goal_position']
     
-    env = GridWorld(render_mode = "rgb_array", size = self.grid_size, agent_view_size = self.agent_view_size, mode_densities = mode_densities, mode_positions=mode_positions)
+    #env = GridWorld(render_mode = "rgb_array", size = self.grid_size, agent_view_size = self.agent_view_size, mode_densities = mode_densities, mode_positions=mode_positions)
+    env = GridWorld(render_mode = "rgb_array", size = self.grid_size, agent_view_size = self.agent_view_size, init_goal_pos = init_goal_position, mode_densities = mode_densities, mode_positions = mode_positions)
     
     trajectories = []
     
@@ -104,7 +109,7 @@ class Sampler():
         actions = [[0,0,0,0,1]] * remaining
         trajectory += list(zip(fill_state, actions))
 
-      trajectories.append(trajectory)
+      trajectories.append(trajectory[:self.traj_length])
       
     return trajectories  
 
@@ -116,80 +121,57 @@ class Sampler():
     half = len(trajectory) // 2
     return trajectory[:half], trajectory[half:]
 
-  def context_and_target(self, dataset, device = device):
-      num_traj = len(dataset)
-      xc, yc, xt, yt = [], [], [], []
+  def build_context_and_target(self, dataset, device = device):
+    '''
+    Multiple tasks are created for each of the trajectories in the dataset. Each
+    trajectory is chosen as the target, and the rest of the trajectories are 
+    permuted to form the context. The permutations are chosen randomly and 
+    the trajectories are concatenated to to from one task.
+    '''
+    num_traj = len(dataset)
+    xc, yc, xt, yt = [], [], [], []
 
-      for i in range(num_traj):
-          # Pick one as target and split it
-          #context_part, target_part = self.split_trajectory_half(dataset[i])
-          
-          context_part = dataset[i][:-1]
-          target_part = [dataset[i][-1]]
+    for i in range(num_traj):
+        # Pick one as target and split it
+        context_part, target_part = self.split_trajectory_half(dataset[i])
+        
+        #context_part = dataset[i][:-1]
+        #target_part = [dataset[i][-1]]
 
-          # Choose the ids of past context trajectories
-          past_context_ids = list(range(i)) + list(range(i+1, num_traj))
+        # Choose the ids of past context trajectories
+        past_context_ids = list(range(i)) + list(range(i+1, num_traj))
 
-          # Generate all permutations of past context ids
-          all_permutations = list(permutations(past_context_ids))
+        # Generate all permutations of past context ids
+        all_permutations = list(permutations(past_context_ids))
 
-          #Choose a subset of permutations, one permutation is fed max once
-          selected_permutations = np.random.choice(len(all_permutations),
-                                                  size=min(5, len(all_permutations)),
-                                                  replace=False)
-          
-          # Generate multiple tasks from the chosen target set and different context
-          for p_idx in selected_permutations:
-              p = list(all_permutations[p_idx])
-              
-              past_contexts = [dataset[j] for j in p]
+        #Choose a subset of permutations, one permutation is fed max once
+        selected_permutations = np.random.choice(len(all_permutations),
+                                                size=min(5, len(all_permutations)),
+                                                replace=False)
+        
+        # Generate multiple tasks from the chosen target set and different context
+        for p_idx in selected_permutations:
+            p = list(all_permutations[p_idx])
+            
+            past_contexts = [dataset[j] for j in p]
 
-              full_context = past_contexts + [context_part]
+            full_context = past_contexts + [context_part]
 
-              # Separate states and actions for context and target
+            # Separate states and actions for context and target
 
-              context_s = torch.tensor([state for traj in full_context for state, _ in traj], dtype = torch.float32).to(device)
-              context_a = torch.tensor([action for traj in full_context for _, action in traj], dtype = torch.float32).to(device)
-              target_s = torch.tensor([state for state, _ in target_part], dtype = torch.float32).to(device)
-              target_a = torch.tensor([action for _, action in target_part], dtype = torch.float32).to(device)
+            context_s = torch.tensor([state for traj in full_context for state, _ in traj], dtype = torch.float32).to(device)
+            context_a = torch.tensor([action for traj in full_context for _, action in traj], dtype = torch.float32).to(device)
+            target_s = torch.tensor([state for state, _ in target_part], dtype = torch.float32).to(device)
+            target_a = torch.tensor([action for _, action in target_part], dtype = torch.float32).to(device)
 
-              xc.append(context_s)
-              yc.append(context_a)
-              xt.append(target_s)
-              yt.append(target_a)
+            xc.append(context_s)
+            yc.append(context_a)
+            xt.append(target_s)
+            yt.append(target_a)
 
-      xc = torch.stack(xc, dim = 0)
-      yc = torch.stack(yc, dim = 0)
-      xt = torch.stack(xt, dim = 0)
-      yt = torch.stack(yt, dim = 0)
+    xc = torch.stack(xc, dim = 0)
+    yc = torch.stack(yc, dim = 0)
+    xt = torch.stack(xt, dim = 0)
+    yt = torch.stack(yt, dim = 0)
 
-      return xc, yc, xt, yt
-    
-  def prepare_data(self, trajectories, context_ratio=0.8, num_context_trajectories=4):
-      xc, yc, xt, yt = [], [], [], []
-      
-      for batch in trajectories:
-          # Randomly select which trajectory will be the target
-          target_idx = np.random.randint(len(batch))
-          target_traj = batch[target_idx]
-          
-          # Split all trajectories (not just the target) into context and target
-          split_point = int(len(target_traj) * context_ratio)
-          context_parts = [traj[:split_point] for traj in batch]
-          target_parts = [traj[split_point:] for traj in batch]
-          
-          # Combine context trajectories
-          context_trajs = context_parts[:num_context_trajectories]
-          context_states = torch.tensor([state for traj in context_trajs for state, _ in traj], dtype=torch.float32)
-          context_actions = torch.tensor([action for traj in context_trajs for _, action in traj], dtype=torch.float32)
-          
-          # Prepare target data (using the target trajectory)
-          target_states = torch.tensor([state for state, _ in target_parts[target_idx]], dtype=torch.float32)
-          target_actions = torch.tensor([action for _, action in target_parts[target_idx]], dtype=torch.float32)
-          
-          xc.append(context_states)
-          yc.append(context_actions)
-          xt.append(target_states)
-          yt.append(target_actions)
-      
-      return torch.stack(xc), torch.stack(yc), torch.stack(xt), torch.stack(yt)
+    return xc, yc, xt, yt

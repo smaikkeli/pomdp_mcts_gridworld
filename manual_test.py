@@ -6,18 +6,17 @@ from src.manual_control import NewManualControl
 def main():
     np.set_printoptions(precision=4, suppress=True)
     
-    grid_size = 3
+    grid_size = 6
     view_size = 3
 
     assert view_size % 2 == 1, "View size must be odd"
     
-    env = GridWorld(render_mode = "human", size = grid_size, agent_view_size = view_size, mode_densities = [0.8, 0.1], mode_positions=[(0,0), (4,4)])
-
+    init_goal_pos = tuple(np.random.randint(1, grid_size, size = 2))
+    env = GridWorld(render_mode = "human", size = grid_size, agent_view_size = view_size, init_goal_pos = init_goal_pos, mode_densities = [0.2,0.3], mode_positions = [(1,1), (1,2)])
+    
     #Manual controls
-    '''
-    mc = NewManualControl(env)
-    mc.start()
-    '''
+    #mc = NewManualControl(env)
+    #mc.start()
     
     #Get state
     while True:
@@ -25,6 +24,7 @@ def main():
         done = False
         obs = env.reset()
         beliefs = env.agent.get_goal_belief_state()
+        print(beliefs)
 
         while not done:
             #Action chosen by the agent?? Should the agent be initialized in main?

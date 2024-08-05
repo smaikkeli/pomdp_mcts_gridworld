@@ -22,6 +22,7 @@ class GridWorld(MiniGridEnv):
     def __init__(self, 
                  size= 16, 
                  start_pos=None, 
+                 init_goal_pos = None,
                  agent_view_size = 7, 
                  mode_densities = None, 
                  mode_positions = None, 
@@ -44,13 +45,12 @@ class GridWorld(MiniGridEnv):
         
         self.agent_dir = 0
         self.agent_start_pos = start_pos
-        self.agent_previous_pos = None
-        self.agent_view_size = agent_view_size
+        self.init_goal_pos = init_goal_pos
         self.goal_pos = None
+        self.agent_view_size = agent_view_size
+        self.agent_previous_pos = None
         
         self.agent = None
-        self.mode_densities = mode_densities
-        self.mode_positions = mode_positions
         
     def choose_action(self, num_sim = 1000, exploration_weight = 2):
         best_action = choose_action(self, num_simulations = num_sim, max_depth = (self.agent_view_size), exploration_weight = exploration_weight)
@@ -171,6 +171,12 @@ class GridWorld(MiniGridEnv):
 
         # Surround the grid with walls
         self.grid.wall_rect(0, 0, width, height)
+        
+        # If possible, place the initial goal to the area where agent cant see
+        if self.init_goal_pos is not None:
+            self.goal_pos = self.place_obj(Goal(), top = self.init_goal_pos, size = (1,1))
+        else:
+            self.goal_pos = self.place_obj(Goal())
 
         # Place the agent
         if self.agent_start_pos is not None:
@@ -178,17 +184,14 @@ class GridWorld(MiniGridEnv):
             self.agent_dir = 0
         else:
             self.place_agent()
-        
-        # If possible, place the initial goal to the area where agent cant see
-
-        self.goal_pos = self.place_obj(Goal())
 
         self.mission = "Reach the goal"
 
     def initialize_agent(self):
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        agent.initialize_belief_state(mode_densities = self.mode_densities, mode_positions = self.mode_positions)
+        #agent.initialize_belief_state()
+        agent.stationary_belief_state(self.goal_pos)
         obs = self.gen_obs()
         agent.update_beliefs(obs)
 
