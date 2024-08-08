@@ -50,7 +50,12 @@ class GridWorld(MiniGridEnv):
         self.agent_view_size = agent_view_size
         self.agent_previous_pos = None
         
+        self.fully_observable = False
+        
         self.agent = None
+        
+    def set_fully_observable(self):
+        self.fully_observable = True
         
     def choose_action(self, num_sim = 1000, exploration_weight = 2):
         best_action = choose_action(self, num_simulations = num_sim, max_depth = (self.agent_view_size), exploration_weight = exploration_weight)
@@ -190,8 +195,12 @@ class GridWorld(MiniGridEnv):
     def initialize_agent(self):
 
         agent = Agent(self.width, self.height, self.agent_pos, self.agent_view_size)
-        #agent.initialize_belief_state()
-        agent.stationary_belief_state(self.goal_pos)
+        
+        if self.fully_observable:
+            agent.initialize_fully_observable_belief_state(self.goal_pos)
+        else:
+            agent.initialize_belief_state()
+    
         obs = self.gen_obs()
         agent.update_beliefs(obs)
 

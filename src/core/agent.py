@@ -72,9 +72,10 @@ class Agent():
         self.goal_beliefs = beliefs
         return beliefs
     
-    def stationary_belief_state(self, goal_position):
+    def initialize_fully_observable_belief_state(self, goal_position):
         '''
-        For testing purposes, initializes belief to the goal
+        Sets the belief state to a fully observable distribution
+        i.e. goal is known to be at goal_position
         '''
         
         self.goal_beliefs = np.zeros((self.width, self.height), dtype = np.float32)

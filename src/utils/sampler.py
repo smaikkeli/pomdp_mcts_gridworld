@@ -8,11 +8,12 @@ USE_CUDA = torch.cuda.is_available()
 device = torch.device("cuda") if USE_CUDA else torch.device("cpu")
 
 class Sampler():
-  def __init__(self, grid_size, agent_view_size, traj_length, fixed_goal = False):
+  def __init__(self, grid_size, agent_view_size, traj_length, fixed_goal = False, fully_observable = False):
     self.grid_size = grid_size
     self.agent_view_size = agent_view_size
     self.traj_length = traj_length
     self.fixed_goal = fixed_goal
+    self.fully_observable = fully_observable
 
   def generate_batch(self, densities = None):
     '''
@@ -72,7 +73,9 @@ class Sampler():
     
     #env = GridWorld(render_mode = "rgb_array", size = self.grid_size, agent_view_size = self.agent_view_size, mode_densities = mode_densities, mode_positions=mode_positions)
     env = GridWorld(render_mode = "rgb_array", size = self.grid_size, agent_view_size = self.agent_view_size, init_goal_pos = init_goal_position, mode_densities = mode_densities, mode_positions = mode_positions)
-    
+    if self.fully_observable:
+      env.set_fully_observable()
+      
     trajectories = []
     
     while len(trajectories) < num_trajectories:
