@@ -43,9 +43,11 @@ class Sampler():
       mode_densities = densities
     
     mode_positions = np.random.randint(1, self.grid_size, (len(mode_densities), 2))
+    init_goal_pos = None
     
     #Sample goal_position that is used if fixed_goal = True
-    init_goal_pos = tuple(np.random.randint(1, self.grid_size + 1, size = 2))
+    if self.fixed_goal:
+      init_goal_pos = tuple(np.random.randint(1, self.grid_size + 1, size = 2))
     
     return {
       'mode_densities': mode_densities,
